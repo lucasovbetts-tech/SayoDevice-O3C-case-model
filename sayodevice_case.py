@@ -20,15 +20,21 @@ key recess floor, the same 1.4 mm of thread as the original plate).
 
 Screws: 4x M2x14 countersunk, from underneath.
 
-Outputs (~/Downloads/o3c_case):
+Outputs (default ~/Downloads/o3c_case):
   o3c_case_top/bottom.step       -> send to CNC shop for the aluminium case
   top.stl / bottom.stl           -> 3D print these for a test fit
   keycaps/knob/knob_line/plug/cable/desk.stl -> render props only, ignore
   *.png                          -> preview renders (+ screen texture)
 
-Usage:  py Sayodevice-case.py            -> writes files into ~/Downloads/o3c_case
-Needs:  pip install cadquery pillow    (vtk comes with cadquery)
+Usage:  py sayodevice_case.py                    -> writes files into ~/Downloads/o3c_case
+        py sayodevice_case.py --out build        -> writes files into ./build
+        py sayodevice_case.py --no-render        -> skip the VTK preview renders
+Needs:  pip install -r requirements.txt    (vtk comes with cadquery)
+
+Importing this module only defines the parameters and functions - nothing is
+built, exported or rendered until you call them (or run the script).
 """
+import argparse
 import math
 import os
 import cadquery as cq
@@ -95,11 +101,14 @@ SCREW_TAP_DEPTH = 2.0              # M2x14 screws reach 1.4 in; front two break 
 
 SCREEN_TEXT = ("Key Presses", "500")
 
-OUT = os.path.join(os.path.expanduser("~"), "Downloads", "o3c_case")
-os.makedirs(OUT, exist_ok=True)
 TOP_Z = BOTTOM_H + TOP_H           # height of the top surface
 PLATE_Z = BOTTOM_H + STACK_H + PLATE_T   # height of the thinned roof the switches/knob sit on
 USB_Z = BOTTOM_H + POST_H - USB_PORT_H / 2   # height of the USB-C port centre
+
+# M2 screw positions: the original corner holes, SCREW_INSET in from each plate edge
+SX, SY = OC3_W / 2 - SCREW_INSET, OC3_D / 2 - SCREW_INSET
+SCREWS = [(x, y) for x in (-SX, SX) for y in (-SY, SY)]   # all 4 combinations of left/right, front/back
+KEY_XS = [(i - (KEY_COUNT - 1) / 2) * KEY_PITCH for i in range(KEY_COUNT)]   # (-20, 0, 20)
 
 #===============================================================================
 # Model
@@ -126,110 +135,115 @@ def countersinks(points, d_head, d_hole):
                             .workplane(offset=(d_head - d_hole) / 2).circle(d_hole / 2).loft())
     return cones
 
-# M2 screw positions: the original corner holes, SCREW_INSET in from each plate edge
-sx, sy = OC3_W / 2 - SCREW_INSET, OC3_D / 2 - SCREW_INSET
-screws = [(x, y) for x in (-sx, sx) for y in (-sy, sy)]   # all 4 combinations of left/right, front/back
-key_xs = [(i - (KEY_COUNT - 1) / 2) * KEY_PITCH for i in range(KEY_COUNT)]   # (-20, 0, 20)
+def usb_slot():
+    """USB-C slot in the back wall, in world coordinates (cuts both the top shell and the base).
 
-# USB-C slot in the back wall, in world coordinates (cuts both the top shell and the base)
-# U-shaped: rounded top, open at the bottom - the port sits so low that a closed slot
-# would leave a paper-thin sliver of base underneath
-usb_len = FIT_GAP + WALL + 1
-usb_y = OC3_D / 2 + usb_len / 2
-usb_slot = (cq.Workplane("XY").box(USB_SLOT_W, usb_len, USB_SLOT_H)
+    U-shaped: rounded top, open at the bottom - the port sits so low that a closed slot
+    would leave a paper-thin sliver of base underneath.
+    """
+    usb_len = FIT_GAP + WALL + 1
+    usb_y = OC3_D / 2 + usb_len / 2
+    return (cq.Workplane("XY").box(USB_SLOT_W, usb_len, USB_SLOT_H)
             .edges("|Y").fillet(USB_SLOT_H / 2 - 0.01)
             .translate((USB_X, usb_y, USB_Z))
             .union(cq.Workplane("XY").box(USB_SLOT_W, usb_len, USB_Z + 1)
                    .translate((USB_X, usb_y, (USB_Z - 1) / 2))))
 
-# top shell: hollow box, open at the bottom, chamfered top edge, cavity fits the O3C stack exactly
-top = rounded_box(CASE_W, CASE_D, TOP_H, CORNER_R).faces(">Z").edges().chamfer(TOP_CHAMFER)
-top = top.cut(rounded_box(OC3_W + 2 * FIT_GAP, OC3_D + 2 * FIT_GAP, STACK_H, OC3_CORNER_R + FIT_GAP))
+def build_top():
+    """Top shell, already raised by BOTTOM_H so it sits on top of the base."""
+    # hollow box, open at the bottom, chamfered top edge, cavity fits the O3C stack exactly
+    top = rounded_box(CASE_W, CASE_D, TOP_H, CORNER_R).faces(">Z").edges().chamfer(TOP_CHAMFER)
+    top = top.cut(rounded_box(OC3_W + 2 * FIT_GAP, OC3_D + 2 * FIT_GAP, STACK_H, OC3_CORNER_R + FIT_GAP))
 
-# everything to subtract from the shell (cuts start below / overshoot so they go cleanly through)
-pocket_z = STACK_H + PLATE_T       # floor of the key/knob recesses
-key_pocket_w = (KEY_COUNT - 1) * KEY_PITCH + KEY_CAP_W + 2 * KEY_POCKET_CLEAR
-key_pocket_d = KEY_CAP_W + 2 * KEY_POCKET_CLEAR
-cuts = [
-    # keys: one long recess the keycaps can press down into, plus the switch holes
-    rounded_cut(0, KEY_ROW_Y, key_pocket_w, key_pocket_d, pocket_z, ROOF, KEY_POCKET_R),
-    *[rounded_cut(x, KEY_ROW_Y, SWITCH_HOLE, SWITCH_HOLE, STACK_H - 1, ROOF + 2, 0.5) for x in key_xs],
-    # screen: stepped bezel pocket + window
-    rounded_cut(*SCREEN_POS, SCREEN_W + 2 * SCREEN_BEZEL, SCREEN_H + 2 * SCREEN_BEZEL,
-                TOP_H - SCREEN_POCKET_DEPTH, SCREEN_POCKET_DEPTH + 1, SCREEN_POCKET_R),
-    rounded_cut(*SCREEN_POS, SCREEN_W, SCREEN_H, STACK_H - 1, ROOF + 2, SCREEN_OPENING_R),
-    # knob: round recess + square hole for the encoder body
-    cq.Workplane("XY", origin=(*KNOB_POS, pocket_z)).circle(KNOB_POCKET_D / 2).extrude(ROOF),
-    rounded_cut(*KNOB_POS, ENCODER_HOLE, ENCODER_HOLE, STACK_H - 1, ROOF + 2, 0.5),
-    # USB-C (slot is in world coordinates, the shell is still sitting on z=0 here)
-    usb_slot.translate((0, 0, -BOTTOM_H)),
-    # M2 blind tapped holes in the roof underside
-    pins(screws, SCREW_TAP_D, STACK_H - 1, SCREW_TAP_DEPTH + 1),
-]
-for c in cuts:
-    top = top.cut(c)
-top = top.translate((0, 0, BOTTOM_H)) #Raises the top so it sits ontop of the bottom instead of overlapping
+    # everything to subtract from the shell (cuts start below / overshoot so they go cleanly through)
+    pocket_z = STACK_H + PLATE_T       # floor of the key/knob recesses
+    key_pocket_w = (KEY_COUNT - 1) * KEY_PITCH + KEY_CAP_W + 2 * KEY_POCKET_CLEAR
+    key_pocket_d = KEY_CAP_W + 2 * KEY_POCKET_CLEAR
+    cuts = [
+        # keys: one long recess the keycaps can press down into, plus the switch holes
+        rounded_cut(0, KEY_ROW_Y, key_pocket_w, key_pocket_d, pocket_z, ROOF, KEY_POCKET_R),
+        *[rounded_cut(x, KEY_ROW_Y, SWITCH_HOLE, SWITCH_HOLE, STACK_H - 1, ROOF + 2, 0.5) for x in KEY_XS],
+        # screen: stepped bezel pocket + window
+        rounded_cut(*SCREEN_POS, SCREEN_W + 2 * SCREEN_BEZEL, SCREEN_H + 2 * SCREEN_BEZEL,
+                    TOP_H - SCREEN_POCKET_DEPTH, SCREEN_POCKET_DEPTH + 1, SCREEN_POCKET_R),
+        rounded_cut(*SCREEN_POS, SCREEN_W, SCREEN_H, STACK_H - 1, ROOF + 2, SCREEN_OPENING_R),
+        # knob: round recess + square hole for the encoder body
+        cq.Workplane("XY", origin=(*KNOB_POS, pocket_z)).circle(KNOB_POCKET_D / 2).extrude(ROOF),
+        rounded_cut(*KNOB_POS, ENCODER_HOLE, ENCODER_HOLE, STACK_H - 1, ROOF + 2, 0.5),
+        # USB-C (slot is in world coordinates, the shell is still sitting on z=0 here)
+        usb_slot().translate((0, 0, -BOTTOM_H)),
+        # M2 blind tapped holes in the roof underside
+        pins(SCREWS, SCREW_TAP_D, STACK_H - 1, SCREW_TAP_DEPTH + 1),
+    ]
+    for c in cuts:
+        top = top.cut(c)
+    return top.translate((0, 0, BOTTOM_H)) #Raises the top so it sits ontop of the bottom instead of overlapping
 
-# base: plate + posts the PCB sits on, countersunk M2 holes from underneath
-bottom = rounded_box(CASE_W, CASE_D, BOTTOM_H, CORNER_R)
-bottom = bottom.union(pins(screws, POST_D, BOTTOM_H, POST_H))
-bottom = bottom.cut(pins(screws, SCREW_CLEAR_D, -1, BOTTOM_H + POST_H + 2))
-bottom = bottom.cut(countersinks(screws, SCREW_CSK_D, SCREW_CLEAR_D))
-bottom = bottom.cut(usb_slot)
+def build_bottom():
+    """Base: plate + posts the PCB sits on, countersunk M2 holes from underneath."""
+    bottom = rounded_box(CASE_W, CASE_D, BOTTOM_H, CORNER_R)
+    bottom = bottom.union(pins(SCREWS, POST_D, BOTTOM_H, POST_H))
+    bottom = bottom.cut(pins(SCREWS, SCREW_CLEAR_D, -1, BOTTOM_H + POST_H + 2))
+    bottom = bottom.cut(countersinks(SCREWS, SCREW_CSK_D, SCREW_CLEAR_D))
+    return bottom.cut(usb_slot())
 
 #===============================================================================
 # Display-Only Parts
 # NOT included in the STEP files sent for manufacturing
 #===============================================================================
 
-# keycaps (Cherry-ish profile)
-keycaps = cq.Workplane("XY")
-for x in key_xs:
-    cap = (cq.Workplane("XY", origin=(x, KEY_ROW_Y, PLATE_Z + 5.0))
-           .rect(KEY_CAP_W, KEY_CAP_W).workplane(offset=8.5)
-           .rect(KEY_CAP_W - 4.1, KEY_CAP_W - 5.1).loft().edges().fillet(0.9))
-    keycaps = keycaps.union(cap)
+def build_props():
+    """Render-only parts: keycaps, knob, knob_line, plug, cable, desk."""
+    # keycaps (Cherry-ish profile)
+    keycaps = cq.Workplane("XY")
+    for x in KEY_XS:
+        cap = (cq.Workplane("XY", origin=(x, KEY_ROW_Y, PLATE_Z + 5.0))
+               .rect(KEY_CAP_W, KEY_CAP_W).workplane(offset=8.5)
+               .rect(KEY_CAP_W - 4.1, KEY_CAP_W - 5.1).loft().edges().fillet(0.9))
+        keycaps = keycaps.union(cap)
 
-# knurled knob: star-shaped profile = knurl ridges, smooth top with indicator line
-KNOB_Z = PLATE_Z + 1.0             # knob sits just above the recess floor
-r_out, r_in = KNOB_D / 2, KNOB_D / 2 - 0.45
-pts = []   # points around the knob, alternating outer/inner radius to make the ridges
-for i in range(KNURL_TEETH * 2):
-    a = math.pi * i / KNURL_TEETH
-    r = r_out if i % 2 == 0 else r_in
-    pts.append((KNOB_POS[0] + r * math.cos(a), KNOB_POS[1] + r * math.sin(a)))
-knob = cq.Workplane("XY", origin=(0, 0, KNOB_Z)).polyline(pts).close().extrude(KNOB_H - 2.5)
-knob = knob.union(cq.Workplane("XY", origin=(*KNOB_POS, KNOB_Z + KNOB_H - 2.5))
-                  .circle(r_out - 0.3).extrude(2.5).faces(">Z").edges().chamfer(0.8))
-indicator = (cq.Workplane("XY").box(0.7, r_out - 2.5, 1.0)
-             .translate((KNOB_POS[0], KNOB_POS[1] + (r_out - 2.5) / 2 + 1.2, KNOB_Z + KNOB_H)))
-knob_line = indicator.intersect(cq.Workplane("XY", origin=(*KNOB_POS, KNOB_Z)).circle(r_out).extrude(KNOB_H + 2))
+    # knurled knob: star-shaped profile = knurl ridges, smooth top with indicator line
+    knob_z = PLATE_Z + 1.0             # knob sits just above the recess floor
+    r_out, r_in = KNOB_D / 2, KNOB_D / 2 - 0.45
+    pts = []   # points around the knob, alternating outer/inner radius to make the ridges
+    for i in range(KNURL_TEETH * 2):
+        a = math.pi * i / KNURL_TEETH
+        r = r_out if i % 2 == 0 else r_in
+        pts.append((KNOB_POS[0] + r * math.cos(a), KNOB_POS[1] + r * math.sin(a)))
+    knob = cq.Workplane("XY", origin=(0, 0, knob_z)).polyline(pts).close().extrude(KNOB_H - 2.5)
+    knob = knob.union(cq.Workplane("XY", origin=(*KNOB_POS, knob_z + KNOB_H - 2.5))
+                      .circle(r_out - 0.3).extrude(2.5).faces(">Z").edges().chamfer(0.8))
+    indicator = (cq.Workplane("XY").box(0.7, r_out - 2.5, 1.0)
+                 .translate((KNOB_POS[0], KNOB_POS[1] + (r_out - 2.5) / 2 + 1.2, knob_z + KNOB_H)))
+    knob_line = indicator.intersect(cq.Workplane("XY", origin=(*KNOB_POS, knob_z)).circle(r_out).extrude(KNOB_H + 2))
 
-# braided cable: plug boot + swept cable leaving the back
-plug_y = CASE_D / 2
-plug = (cq.Workplane("XZ", origin=(USB_X, plug_y, USB_Z))
-        .rect(USB_SLOT_W - 1, USB_SLOT_H - 0.6).extrude(-16).edges("|Y").fillet(3.0))
-path = cq.Workplane("XY").spline(
-    [(USB_X, plug_y + 15, USB_Z), (USB_X - 8, plug_y + 45, 4.0),
-     (USB_X - 30, plug_y + 90, 2.6), (USB_X - 70, plug_y + 140, 2.6)], includeCurrent=False)
-cable = (cq.Workplane("XZ", origin=(USB_X, plug_y + 15, USB_Z))
-         .circle(2.6).sweep(path, transition="round"))
+    # braided cable: plug boot + swept cable leaving the back
+    plug_y = CASE_D / 2
+    plug = (cq.Workplane("XZ", origin=(USB_X, plug_y, USB_Z))
+            .rect(USB_SLOT_W - 1, USB_SLOT_H - 0.6).extrude(-16).edges("|Y").fillet(3.0))
+    path = cq.Workplane("XY").spline(
+        [(USB_X, plug_y + 15, USB_Z), (USB_X - 8, plug_y + 45, 4.0),
+         (USB_X - 30, plug_y + 90, 2.6), (USB_X - 70, plug_y + 140, 2.6)], includeCurrent=False)
+    cable = (cq.Workplane("XZ", origin=(USB_X, plug_y + 15, USB_Z))
+             .circle(2.6).sweep(path, transition="round"))
 
-desk = cq.Workplane("XY").box(3000, 3000, 2).translate((0, 0, -1))
+    desk = cq.Workplane("XY").box(3000, 3000, 2).translate((0, 0, -1))
+
+    return {"keycaps": keycaps, "knob": knob, "knob_line": knob_line,
+            "plug": plug, "cable": cable, "desk": desk}
 
 #===============================================================================
 # Export
 #===============================================================================
 
-# STEP files for the top shell and base, sent to the shop for CNC machining
-cq.exporters.export(top, f"{OUT}/o3c_case_top.step")
-cq.exporters.export(bottom, f"{OUT}/o3c_case_bottom.step")
-
-# STL files: top/bottom for 3D-print test fits, all parts are loaded by the render below
-parts = {"top": top, "bottom": bottom, "keycaps": keycaps, "knob": knob,
-         "knob_line": knob_line, "plug": plug, "cable": cable, "desk": desk}
-for name, shape in parts.items():
-    cq.exporters.export(shape, f"{OUT}/{name}.stl", tolerance=0.02, angularTolerance=0.08)
+def export(parts, out_dir):
+    """STEP files for the top shell and base (CNC), STL files for every part (printing + render)."""
+    os.makedirs(out_dir, exist_ok=True)
+    cq.exporters.export(parts["top"], os.path.join(out_dir, "o3c_case_top.step"))
+    cq.exporters.export(parts["bottom"], os.path.join(out_dir, "o3c_case_bottom.step"))
+    for name, shape in parts.items():
+        cq.exporters.export(shape, os.path.join(out_dir, f"{name}.stl"),
+                            tolerance=0.02, angularTolerance=0.08)
 
 #===============================================================================
 # Render
@@ -255,8 +269,6 @@ def make_screen_png(path, w=480, h=260):
         d.rectangle((w - 80 + i * 11, 64 - bh, w - 74 + i * 11, 64), fill=(225, 228, 235))
     img.save(path)
 
-make_screen_png(f"{OUT}/screen.png")
-
 MATERIALS = {   # colour, diffuse, specular, specular power, ambient
     "top":       ((0.085, 0.085, 0.09), 0.95, 0.30, 18, 0.30),  # matte black anodised
     "bottom":    ((0.075, 0.075, 0.08), 0.95, 0.30, 18, 0.30),
@@ -277,14 +289,14 @@ def actor_from_stl(path):
     actor = vtk.vtkActor(); actor.SetMapper(mapper)
     return actor
 
-def screen_actor():
+def screen_actor(out_dir):
     """Flat rectangle under the screen window, textured with screen.png."""
     plane = vtk.vtkPlaneSource()
     x, y, z = SCREEN_POS[0], SCREEN_POS[1], BOTTOM_H + STACK_H - 0.3   # screen sits in the acrylic, under the roof
     plane.SetOrigin(x - SCREEN_W / 2, y - SCREEN_H / 2, z)
     plane.SetPoint1(x + SCREEN_W / 2, y - SCREEN_H / 2, z)
     plane.SetPoint2(x - SCREEN_W / 2, y + SCREEN_H / 2, z)
-    reader = vtk.vtkPNGReader(); reader.SetFileName(f"{OUT}/screen.png")
+    reader = vtk.vtkPNGReader(); reader.SetFileName(os.path.join(out_dir, "screen.png"))
     tex = vtk.vtkTexture(); tex.SetInputConnection(reader.GetOutputPort()); tex.InterpolateOn()
     mapper = vtk.vtkPolyDataMapper(); mapper.SetInputConnection(plane.GetOutputPort())
     actor = vtk.vtkActor(); actor.SetMapper(mapper); actor.SetTexture(tex)
@@ -292,18 +304,18 @@ def screen_actor():
     p.SetSpecular(0.6); p.SetSpecularPower(80)                 # glossy glass reflection
     return actor
 
-def render(path, azimuth, elevation, zoom=0.85):
+def render(out_dir, path, azimuth, elevation, zoom=0.85):
     """Render all parts to a PNG. azimuth = angle around the case, elevation = angle from above."""
     ren = vtk.vtkRenderer()
     ren.GradientBackgroundOn()
     ren.SetBackground(0.05, 0.05, 0.055); ren.SetBackground2(0.12, 0.12, 0.13)
     for name, (col, dif, spec, power, amb) in MATERIALS.items():
-        a = actor_from_stl(f"{OUT}/{name}.stl")
+        a = actor_from_stl(os.path.join(out_dir, f"{name}.stl"))
         p = a.GetProperty()
         p.SetColor(*col); p.SetDiffuse(dif); p.SetSpecular(spec)
         p.SetSpecularPower(power); p.SetAmbient(amb)
         ren.AddActor(a)
-    ren.AddActor(screen_actor())
+    ren.AddActor(screen_actor(out_dir))
     # soft studio lighting: key light front-left, fill right, strong rim from behind
     ren.RemoveAllLights()
     for pos, inten in [((-180, -160, 260), 1.0), ((220, -120, 140), 0.45), ((40, 260, 160), 1.1)]:
@@ -323,6 +335,28 @@ def render(path, azimuth, elevation, zoom=0.85):
     writer = vtk.vtkPNGWriter(); writer.SetFileName(path)
     writer.SetInputConnection(grab.GetOutputPort()); writer.Write()
 
-render(f"{OUT}/o3c_case_render.png", azimuth=-25, elevation=42)
-render(f"{OUT}/o3c_case_render_back.png", azimuth=150, elevation=28)
-print("Done ->", OUT)
+def render_all(out_dir):
+    """Front + back preview renders. Needs the STL files from export() in out_dir."""
+    make_screen_png(os.path.join(out_dir, "screen.png"))
+    render(out_dir, os.path.join(out_dir, "o3c_case_render.png"), azimuth=-25, elevation=42)
+    render(out_dir, os.path.join(out_dir, "o3c_case_render_back.png"), azimuth=150, elevation=28)
+
+#===============================================================================
+# Main
+#===============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="Build the SayoDevice O3C case: STEP + STL files and preview renders.")
+    parser.add_argument("--out", default=os.path.join(os.path.expanduser("~"), "Downloads", "o3c_case"),
+                        help="folder to write the files into (default: ~/Downloads/o3c_case)")
+    parser.add_argument("--no-render", action="store_true", help="skip the VTK preview renders")
+    args = parser.parse_args()
+
+    parts = {"top": build_top(), "bottom": build_bottom(), **build_props()}
+    export(parts, args.out)
+    if not args.no_render:
+        render_all(args.out)
+    print("Done ->", args.out)
+
+if __name__ == "__main__":
+    main()
