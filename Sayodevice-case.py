@@ -18,7 +18,7 @@ like on the original plate. 4 hidden M2 screws come up through the base, posts,
 PCB and acrylic into tapped holes in the roof (the front two end flush with the
 key recess floor, the same 1.4 mm of thread as the original plate).
 
-Screws: 4x M2x12 countersunk, from underneath.
+Screws: 4x M2x14 countersunk, from underneath.
 
 Outputs (~/Downloads/o3c_case):
   o3c_case_top/bottom.step       -> send to CNC shop for the aluminium case
@@ -45,18 +45,19 @@ OC3_CORNER_R = 3.2                 # rough (+-0.3)
 PCB_T = 1.5
 ACRYLIC_T = 3.7                    # top acrylic frame, holds the screen
 POST_H = 3.8                       # = old bottom acrylic, room for the hot-swap sockets under the PCB
+STACK_EXTRA = 1.0                  # test print: shell sat ~1 mm proud of the base, real stack is taller
 
 # case
 FIT_GAP = 0.3                      # clearance between the O3C stack and the inside walls, per side
 WALL = 3.0                         # side wall thickness
-FLOOR = 1.6                        # base thickness under the posts (sets how far M2x12 screws reach)
+FLOOR = 2.6                        # base thickness under the posts (sets how far M2x14 screws reach)
 ROOF = 3.0                         # roof thickness (screw threads go in here)
 PLATE_T = 1.4                      # roof thinned to this around switches/knob, same as the original plate
 TOP_CHAMFER = 1.2                  # bright diamond-cut style edge around the top
 CASE_W = OC3_W + 2 * (FIT_GAP + WALL)    # outer footprint -> 71.6 x 56.6
 CASE_D = OC3_D + 2 * (FIT_GAP + WALL)
 CORNER_R = OC3_CORNER_R + FIT_GAP + WALL # vertical corner radius, follows the O3C's corners
-STACK_H = POST_H + PCB_T + ACRYLIC_T     # everything between base and roof (9.0)
+STACK_H = POST_H + PCB_T + ACRYLIC_T + STACK_EXTRA   # everything between base and roof (10.0)
 TOP_H, BOTTOM_H = STACK_H + ROOF, FLOOR  # top shell height, base thickness
 
 # switches (positions are centres, origin = middle of the case, front is -Y)
@@ -90,7 +91,7 @@ POST_D = 5.0                       # posts on the base the PCB sits on
 SCREW_CLEAR_D = 2.4                # M2 clearance through base + posts
 SCREW_CSK_D = 4.0                  # M2 countersunk head
 SCREW_TAP_D = 1.6                  # M2 tap drill, holes in the roof underside
-SCREW_TAP_DEPTH = 2.0              # M2x12 screws reach 1.4 in; front two break through into the key recess
+SCREW_TAP_DEPTH = 2.0              # M2x14 screws reach 1.4 in; front two break through into the key recess
 
 SCREEN_TEXT = ("Key Presses", "500")
 
