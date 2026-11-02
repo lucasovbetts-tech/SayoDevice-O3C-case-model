@@ -29,6 +29,7 @@ Outputs (default ~/Downloads/o3c_case):
 Usage:  py sayodevice_case.py                    -> writes files into ~/Downloads/o3c_case
         py sayodevice_case.py --out build        -> writes files into ./build
         py sayodevice_case.py --no-render        -> skip the VTK preview renders
+        py sayodevice_case.py --download         -> only rebuild the files in the repo's download/ folder
 Needs:  pip install -r requirements.txt    (vtk comes with cadquery)
 
 Importing this module only defines the parameters and functions - nothing is
@@ -236,6 +237,8 @@ def build_props():
 # Export
 #===============================================================================
 
+STL_TOLERANCE, STL_ANGULAR_TOLERANCE = 0.02, 0.08   # mesh fineness for STL export
+
 def export(parts, out_dir):
     """STEP files for the top shell and base (CNC), STL files for every part (printing + render)."""
     os.makedirs(out_dir, exist_ok=True)
@@ -243,7 +246,15 @@ def export(parts, out_dir):
     cq.exporters.export(parts["bottom"], os.path.join(out_dir, "o3c_case_bottom.step"))
     for name, shape in parts.items():
         cq.exporters.export(shape, os.path.join(out_dir, f"{name}.stl"),
-                            tolerance=0.02, angularTolerance=0.08)
+                            tolerance=STL_TOLERANCE, angularTolerance=STL_ANGULAR_TOLERANCE)
+
+def export_download(top, bottom, out_dir):
+    """The 4 files people download from the repo: STEP (CNC) + STL (3D printing) for each part."""
+    os.makedirs(out_dir, exist_ok=True)
+    for name, shape in (("top", top), ("bottom", bottom)):
+        cq.exporters.export(shape, os.path.join(out_dir, f"o3c_case_{name}.step"))
+        cq.exporters.export(shape, os.path.join(out_dir, f"o3c_case_{name}.stl"),
+                            tolerance=STL_TOLERANCE, angularTolerance=STL_ANGULAR_TOLERANCE)
 
 #===============================================================================
 # Render
@@ -350,7 +361,15 @@ def main():
     parser.add_argument("--out", default=os.path.join(os.path.expanduser("~"), "Downloads", "o3c_case"),
                         help="folder to write the files into (default: ~/Downloads/o3c_case)")
     parser.add_argument("--no-render", action="store_true", help="skip the VTK preview renders")
+    parser.add_argument("--download", action="store_true",
+                        help="only rebuild the 4 files in the repo's download/ folder, then stop")
     args = parser.parse_args()
+
+    if args.download:
+        out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "download")
+        export_download(build_top(), build_bottom(), out_dir)
+        print("Done ->", out_dir)
+        return
 
     parts = {"top": build_top(), "bottom": build_bottom(), **build_props()}
     export(parts, args.out)

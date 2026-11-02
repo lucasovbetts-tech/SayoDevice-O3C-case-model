@@ -68,14 +68,15 @@ Files are written to `~/Downloads/o3c_case`. Options:
 |---|---|
 | `--out FOLDER` | Write the files somewhere else, e.g. `py sayodevice_case.py --out build` |
 | `--no-render` | Skip the preview renders (much faster if you only need the STEP/STL files) |
+| `--download` | Only rebuild the 4 files in this repo's `download` folder, then stop |
 
 On macOS/Linux, use `python` instead of `py`.
 
-If you change the design for everyone, copy the STEP and STL files into the `download` folder (rename `top.stl` / `bottom.stl` to `o3c_case_top.stl` / `o3c_case_bottom.stl`).
+If you change the design for everyone, run `py sayodevice_case.py --download` and commit the updated files. CI fails if you forget (see [Testing](#testing)).
 
 ## Testing
 
-The tests check that both parts build as valid solids with the expected outer dimensions (to 0.01 mm). Run them after changing the parameters:
+The tests check that both parts build as valid solids with the expected outer dimensions (to 0.01 mm), and that the files in `download/` match what the script builds now, so the downloadable files can't fall out of date. Run them after changing the parameters:
 
 ```
 py -m pytest
