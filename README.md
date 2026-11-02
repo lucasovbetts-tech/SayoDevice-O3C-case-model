@@ -1,5 +1,7 @@
 # SayoDevice O3C Case
 
+[![CI](https://github.com/lucasovbetts-tech/SayoDevice-OC3-case-model/actions/workflows/ci.yml/badge.svg)](https://github.com/lucasovbetts-tech/SayoDevice-OC3-case-model/actions/workflows/ci.yml)
+
 A parametric matte black aluminium enclosure for the SayoDevice O3C macropad, built in Python with [CadQuery](https://cadquery.readthedocs.io/).
 
 ![Front view of the O3C case](Rendered-OC3.png)
@@ -34,7 +36,7 @@ The case replaces the O3C's original plates. Only the keycaps, knob, screen and 
 - **Screws:** 4 hidden M2 screws come up from underneath through the base, posts, PCB and acrylic into tapped holes in the roof, clamping everything together.
 - **Size:** 71.6 × 56.6 × 15.6 mm (without keycaps and knob).
 
-All key dimensions were measured off a real O3C (±0.1 mm). The parameters at the top of `Sayodevice-case.py` say which ones are measured and which are design choices you can change freely (wall thickness, roof thickness, clearances, chamfer).
+All key dimensions were measured off a real O3C (±0.1 mm). The parameters at the top of `sayodevice_case.py` say which ones are measured and which are design choices you can change freely (wall thickness, roof thickness, clearances, chamfer).
 
 ## Test print
 
@@ -48,19 +50,38 @@ The blue glow is the key LEDs shining through the white plastic. Black anodised 
 
 ## Changing the design
 
-Edit the parameters at the top of `Sayodevice-case.py`, then rebuild the files. Install the dependencies (first time only):
+Edit the parameters at the top of `sayodevice_case.py`, then rebuild the files. Install the dependencies (first time only):
 
 ```
-py -m pip install cadquery pillow
+py -m pip install -r requirements.txt
 ```
 
 Run the script:
 
 ```
-py Sayodevice-case.py
+py sayodevice_case.py
 ```
 
-Files are written to `~/Downloads/o3c_case`. If you change the design for everyone, copy the STEP and STL files into the `download` folder (rename `top.stl` / `bottom.stl` to `o3c_case_top.stl` / `o3c_case_bottom.stl`).
+Files are written to `~/Downloads/o3c_case`. Options:
+
+| Option | What it does |
+|---|---|
+| `--out FOLDER` | Write the files somewhere else, e.g. `py sayodevice_case.py --out build` |
+| `--no-render` | Skip the preview renders (much faster if you only need the STEP/STL files) |
+
+On macOS/Linux, use `python` instead of `py`.
+
+If you change the design for everyone, copy the STEP and STL files into the `download` folder (rename `top.stl` / `bottom.stl` to `o3c_case_top.stl` / `o3c_case_bottom.stl`).
+
+## Testing
+
+The tests check that both parts build as valid solids with the expected outer dimensions (to 0.01 mm). Run them after changing the parameters:
+
+```
+py -m pytest
+```
+
+They also run automatically on GitHub for every push and pull request (the CI badge at the top), along with a full build of the files.
 
 ## Output files
 
